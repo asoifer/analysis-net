@@ -98,6 +98,16 @@ namespace Console
 			var liveVariables = new LiveVariablesAnalysis(cfg);
 			var livenessInfo = liveVariables.Analyze();
 
+            // Zero Analysis
+            var zeroAnalysis = new ZeroAnalysis(cfg);
+            var zeroAnalysisInfo = zeroAnalysis.Analyze();
+            System.Console.WriteLine("Zero Analysis");
+            foreach (var l in zeroAnalysisInfo.Last().Output)
+            {
+                if (l.variable.Name.Contains("local"))
+                    System.Console.WriteLine(l.variable.Name + " " + l.GetStringValue());
+            }
+
 			// SSA
 			var ssa = new StaticSingleAssignment(methodBody, cfg);
 			ssa.Transform();
@@ -111,7 +121,37 @@ namespace Console
 			//dgml = DGMLSerializer.Serialize(host, typeDefinition);
 		}
 
-		private static void RunSomeTests()
+        private static void RunSoiferTests()
+        {
+            const string root = @"..\..\..";
+            //const string root = @"C:"; // casa
+            //const string root = @"C:\Users\Edgar\Projects"; // facu
+
+            const string input = root + @"\Test\bin\Debug\Test.dll";
+            var host = new Host();
+
+            PlatformTypes.Resolve(host);
+            var loader = new Loader(host);
+            loader.LoadAssembly(input);
+
+            var type = new BasicType("Examples", TypeKind.ReferenceType) 
+            {
+                ContainingAssembly = new AssemblyReference("Test"),
+                ContainingNamespace = "Test"
+            };
+            var typeDefinition = host.ResolveReference(type);
+            var method = new MethodReference("ExampleZeroAnalysis", PlatformTypes.Void)
+            {
+                ContainingType = type,
+            };
+
+            var methodDefinition = host.ResolveReference(method) as MethodDefinition;
+
+            var program = new Program(host);
+            program.VisitMethod(methodDefinition);
+        }
+
+        private static void RunSomeTests()
 		{
 			const string root = @"..\..\..";
 			//const string root = @"C:"; // casa
@@ -368,9 +408,10 @@ namespace Console
 
 		static void Main(string[] args)
 		{
+            RunSoiferTests();
 			//RunSomeTests();
 			//RunGenericsTests();
-			RunInterPointsToTests();
+			//RunInterPointsToTests();
 
 			System.Console.WriteLine("Done!");
 			System.Console.ReadKey();

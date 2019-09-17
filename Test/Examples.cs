@@ -207,7 +207,26 @@ namespace Test
 			a++;
 		}
 
-		public int Example1(int arg1)
+        public void ExampleZeroAnalysis()
+        {
+            var a = 0;
+            var b = 1;
+            var c = 0;
+
+            if (a > 0)
+            {
+                a = b;
+                c = c + 1;
+            }
+            else
+            {
+                b = a;
+            }
+
+            return;
+        }
+
+        public int Example1(int arg1)
 		{
 			int a = 1;
 			int b = 2;

@@ -50,6 +50,7 @@
     <Compile Include="Analyses\FieldEffectsAnalysis.cs" />
     <Compile Include="Analyses\EscapeAnalysis.cs" />
     <Compile Include="Analyses\InterPointsToAnalysis.cs" />
+    <Compile Include="Analyses\ZeroAnalysis.cs" />
     <Compile Include="Model\ClassHierarchy.cs" />
     <Compile Include="Analyses\LiveVariablesAnalysis.cs" />
     <Compile Include="Model\CallGraph.cs" />
