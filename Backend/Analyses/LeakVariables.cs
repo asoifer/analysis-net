@@ -9,18 +9,15 @@ namespace Backend.Analyses
     public class LeakVariableInfo
     {
         public LeakSymbol Sensibility;
-        public bool Laked;
 
         public LeakVariableInfo()
         {
             Sensibility = LeakSymbol.Bottom;
-            Laked = false;
         }
 
-        public LeakVariableInfo(LeakSymbol sensibility, bool laked)
+        public LeakVariableInfo(LeakSymbol sensibility)
         {
             this.Sensibility = sensibility;
-            this.Laked = laked;
         }
     }
 
@@ -28,15 +25,20 @@ namespace Backend.Analyses
     {
         public IDictionary<IVariable, LeakVariableInfo> Variables { get; set; }
         public IVariable ReturnVariable { get; set; }
+        public bool LakedVariables { get; set; }
 
         public LeakVariables()
         {
             Variables = new Dictionary<IVariable, LeakVariableInfo>();
+            ReturnVariable = null;
+            LakedVariables = false;
         }
 
         public LeakVariables(LeakVariables other)
         {
             Variables = other.Variables;
+            ReturnVariable = other.ReturnVariable;
+            LakedVariables = other.LakedVariables;
         }
 
         public void Add(IVariable v, LeakVariableInfo l)
@@ -58,12 +60,11 @@ namespace Backend.Analyses
                     // c could be 0
                     else if (e != e2.Value && (e.Sensibility == LeakSymbol.Low || e.Sensibility == LeakSymbol.High))
                         Variables[e2.Key].Sensibility = LeakSymbol.Top;
-
-                    Variables[e2.Key].Laked = Variables[e2.Key].Laked || other.Variables[e2.Key].Laked;
                 }
                 else
                     Variables.Add(e2);
             }
+            this.LakedVariables = this.LakedVariables || other.LakedVariables;
         }
 
         public static int CompareLeakSymbol (LeakSymbol ls1, LeakSymbol ls2)
@@ -99,7 +100,7 @@ namespace Backend.Analyses
             if (a == null)
                 return false;
 
-            return Variables == a.Variables;
+            return Variables == a.Variables && LakedVariables == a.LakedVariables;
         }
 
         public override int GetHashCode()

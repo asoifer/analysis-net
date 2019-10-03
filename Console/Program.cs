@@ -114,9 +114,15 @@ namespace Console
             var cg = pta.Analyze(method);
             var interLeakAnalysis = new InterLeakAnalysis(programInfo, cg);
             interLeakAnalysis.Analyze(method);
+            var infoOfMethod = programInfo.GetOrAdd(method);
+            var resultOfMethod = infoOfMethod.Get<InterLeakAnalysisInfo>(InterLeakAnalysis.INFO_ILA_RESULT);
+            if (resultOfMethod.Output.LakedVariables)
+                System.Console.WriteLine("POSIBLEMENTE VARIABLES LAKEADAS");
+            else
+                System.Console.WriteLine("PROGRAMA SEGURO POSTA");
 
-			// SSA
-			var ssa = new StaticSingleAssignment(methodBody, cfg);
+            // SSA
+            var ssa = new StaticSingleAssignment(methodBody, cfg);
 			ssa.Transform();
 			ssa.Prune(livenessInfo);
 

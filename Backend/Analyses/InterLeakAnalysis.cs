@@ -163,14 +163,16 @@ namespace Backend.Analyses
                     //    binding.Add(lv.ReturnVariable, methodCall.Result);
                     //lv = RestoreMapping(input, lv, binding);
 
-                    // TODO: Chequear
+                    var maybeLakedVariables = lv.LakedVariables;
                     if (methodCall.HasResult && lv.ReturnVariable != null)
                     {
+                        var vrv = lv.Variables[lv.ReturnVariable];
                         lv = input;
-                        lv.Add(methodCall.Result, lv.Variables[lv.ReturnVariable]);
+                        lv.Add(methodCall.Result, vrv);
                     }
                     else
                         lv = input;
+                    lv.LakedVariables = lv.LakedVariables || maybeLakedVariables;
 
                     if (lv != null)
                     {
@@ -188,6 +190,7 @@ namespace Backend.Analyses
         private LeakVariables NewMapping(LeakVariables input, IDictionary<IVariable, IVariable> binding)
         {
             var lv = new LeakVariables();
+            lv.LakedVariables = input.LakedVariables;
 
             foreach (var entry in binding)
             {

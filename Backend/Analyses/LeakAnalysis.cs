@@ -37,6 +37,8 @@ namespace Backend.Analyses
         public override DataFlowAnalysisResult<LeakVariables>[] Analyze()
         {
             this.initialLeakVariables = new LeakVariables();
+            foreach (var p in method.Body.Parameters)
+                this.initialLeakVariables.Variables[p] = new LeakVariableInfo(LeakSymbol.Bottom);
             return base.Analyze();
         }
 
@@ -83,6 +85,14 @@ namespace Backend.Analyses
                 var result = this.variables;
                 this.variables = null;
                 return result;
+            }
+
+            public override void Visit(ConditionalBranchInstruction instruction)
+            {
+                variables.LakedVariables = variables.LakedVariables ||
+                (instruction.UsedVariables.Any(x => 
+                variables.Variables[x].Sensibility == LeakSymbol.Top || 
+                variables.Variables[x].Sensibility == LeakSymbol.High));
             }
 
             //public override void Visit(LoadInstruction instruction)
@@ -134,9 +144,9 @@ namespace Backend.Analyses
                 {
                     // Particular cases
                     if (((MethodCallInstruction)instruction).Method.Name == "Sensible")
-                    {
                         variables.Variables[((MethodCallInstruction)instruction).Arguments[0]].Sensibility = LeakSymbol.High;
-                    }
+                    else if (((MethodCallInstruction)instruction).Method.Name == "Sanitiza")
+                        variables.Variables[((MethodCallInstruction)instruction).Arguments[0]].Sensibility = LeakSymbol.Low;
                     else
                     {
                         LeakVariables output = null;
@@ -144,13 +154,15 @@ namespace Backend.Analyses
                             output = ProcessMethodCall(method, (MethodCallInstruction)instruction, variables);
 
                         if (output == null)
-                            foreach (var arg in ((MethodCallInstruction)instruction).Arguments)
-                                variables.Variables[arg].Laked = true;
+                        { 
+                            if (((MethodCallInstruction)instruction).Arguments.Any(x => 
+                            variables.Variables[x].Sensibility == LeakSymbol.High || variables.Variables[x].Sensibility == LeakSymbol.Top))
+                                variables.LakedVariables = true;
+                        }
                         else
                         {
                             variables = output;
-                            // TODO: ver si fue lakeada en la otra función
-                            info = variables.Variables[output.ReturnVariable];
+                            return;
                         }
                     }
                 }

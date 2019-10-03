@@ -230,6 +230,7 @@ namespace Test
         {
             var sensible1 = 0;
             IF.Sensible(sensible1);
+            IF.Sanitiza(sensible1);
             var a = 3;
             var b = 1;
             var c = 0;
@@ -244,12 +245,25 @@ namespace Test
                 b = a;
             }
 
+            System.Console.WriteLine(c);
+            IF.Sensible(sensible1);
+            var t = ExampleLeakAnalysis_1_F1(sensible1);
+            //System.Console.WriteLine(t);
+
             return;
+        }
+
+        public int ExampleLeakAnalysis_1_F1(int p)
+        {
+            var a = p;
+            Console.WriteLine(p);
+            return a;
         }
 
         class IF
         {
             public static void Sensible(int val) { }
+            public static void Sanitiza(int val) { }
         }
 
         public int Example1(int arg1)
