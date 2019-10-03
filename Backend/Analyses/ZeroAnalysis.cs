@@ -169,6 +169,7 @@ namespace Backend.Analyses
             public override void Visit(DefinitionInstruction instruction)
             {
                 var isIntOrDouble =
+                    instruction.ModifiedVariables.Count > 0 &&
                     instruction.ModifiedVariables.First().Type is BasicType &&
                     (((BasicType)instruction.ModifiedVariables.First().Type).Name == "Int32" ||
                     ((BasicType)instruction.ModifiedVariables.First().Type).Name == "Double");

@@ -226,6 +226,32 @@ namespace Test
             return;
         }
 
+        public void ExampleLeakAnalysis_1()
+        {
+            var sensible1 = 0;
+            IF.Sensible(sensible1);
+            var a = 3;
+            var b = 1;
+            var c = 0;
+
+            if (sensible1 > 0)
+            {
+                a = b;
+                c = sensible1 + 1;
+            }
+            else
+            {
+                b = a;
+            }
+
+            return;
+        }
+
+        class IF
+        {
+            public static void Sensible(int val) { }
+        }
+
         public int Example1(int arg1)
 		{
 			int a = 1;

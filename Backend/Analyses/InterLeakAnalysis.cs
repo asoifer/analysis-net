@@ -1,5 +1,7 @@
 ﻿using Backend.Model;
+using Backend.Transformations;
 using Backend.Utils;
+using Model.ThreeAddressCode.Instructions;
 using Model.ThreeAddressCode.Values;
 using Model.Types;
 using System;
@@ -17,89 +19,9 @@ namespace Backend.Analyses
         Top = 3
     }
 
-    public class InterLeakAnalysisInfo : DataFlowAnalysisResult<ISet<LeakVariable>>
+    public class InterLeakAnalysisInfo : DataFlowAnalysisResult<LeakVariables>
     {
-        public DataFlowAnalysisResult<ISet<LeakVariable>>[] IntraLeakAnalysisInfo { get; set; }
-    }
-
-    public class LeakVariable
-    {
-        public IVariable variable;
-        public LeakSymbol value;
-
-        public string GetStringValue()
-        {
-            var s = value;
-            if (s == LeakSymbol.Bottom)
-                return "Bottom";
-            if (s == LeakSymbol.Low)
-                return "Low";
-            if (s == LeakSymbol.High)
-                return "High";
-            if (s == LeakSymbol.Top)
-                return "Top";
-            throw new NotImplementedException();
-        }
-
-        private static int Compare(LeakVariable lv1, LeakVariable lv2)
-        {
-            if (lv1 == null && lv2 == null)
-                return 0;
-            else if (lv1 == null)
-                return -1;
-            else if (lv2 == null)
-                return 1;
-
-            if (lv1.variable.Name == lv2.variable.Name)
-            {
-                if (lv1.value == lv2.value ||
-                    ((int)lv1.value == 1 && (int)lv2.value == 2) ||
-                    ((int)lv1.value == 2 && (int)lv2.value == 1))
-                    return 0;
-                else if ((int)lv1.value < (int)lv2.value)
-                    return -1;
-                else
-                    return 1;
-            }
-            else
-                return 0;
-        }
-
-        public int CompareTo(LeakVariable other)
-        {
-            return Compare(this, other);
-        }
-
-        public static bool operator <(LeakVariable lv1, LeakVariable lv2)
-        {
-            return lv1.CompareTo(lv2) < 0;
-        }
-
-        public static bool operator >(LeakVariable lv1, LeakVariable lv2)
-        {
-            return lv1.CompareTo(lv2) > 0;
-        }
-
-        public LeakVariable(IVariable variable, LeakSymbol value)
-        {
-            this.variable = variable;
-            this.value = value;
-        }
-
-        public override bool Equals(object obj)
-        {
-            var a = obj as LeakVariable;
-
-            if (a == null)
-                return false;
-
-            return this.variable.Name == a.variable.Name;
-        }
-
-        public override int GetHashCode()
-        {
-            return this.variable.Name.GetHashCode();
-        }
+        public DataFlowAnalysisResult<LeakVariables>[] IntraLeakAnalysisInfo { get; set; }
     }
 
     public class InterLeakAnalysis
@@ -107,52 +29,221 @@ namespace Backend.Analyses
         private CallGraph callGraph;
         private ProgramAnalysisInfo programInfo;
         public Func<MethodDefinition, ControlFlowGraph> OnReachableMethodFound;
-        //public Func<IMethodReference, bool> OnUnknownMethodFound;
-        //public ProcessUnknownMethodCallDelegate ProcessUnknownMethodCall;
 
-        public const string INFO_CG = "CG";
         public const string INFO_CFG = "CFG";
-        public const string INFO_PTA = "PTA";
-        public const string INFO_IPTA_RESULT = "IPTA_RESULT";
+        public const string INFO_LA = "LA";
+        public const string INFO_ILA_RESULT = "ILA_RESULT";
 
-        public InterLeakAnalysis(ProgramAnalysisInfo programInfo)
+        public InterLeakAnalysis(ProgramAnalysisInfo programInfo, CallGraph callGraph)
         {
             this.programInfo = programInfo;
+            this.callGraph = callGraph;
+            this.OnReachableMethodFound = this.DefaultReachableMethodFound;
         }
 
         public CallGraph Analyze(MethodDefinition method)
         {
-            callGraph = new CallGraph();
-            callGraph.Add(method);
-            programInfo.Add(INFO_CG, callGraph);
-
             var methodInfo = programInfo.GetOrAdd(method);
 
             var cfg = OnReachableMethodFound(method);
             // TODO: Don't create unknown nodes when doing the inter PT analysis
-            var pta = new PointsToAnalysis(cfg, method);
-            pta.ProcessMethodCall = ProcessMethodCall;
+            var la = new LeakAnalysis(cfg, method);
+            la.ProcessMethodCall = ProcessMethodCall;
+            methodInfo.Add(INFO_LA, la);
 
-            if (IsScalarType != null)
+            var info = new InterLeakAnalysisInfo();
+            methodInfo.Add(INFO_ILA_RESULT, info);
+            info.IntraLeakAnalysisInfo = la.Result;
+
+            var result = la.Analyze();
+
+            info.Output = result[ControlFlowGraph.ExitNodeId].Output;
+            return callGraph;
+        }
+
+        protected virtual LeakVariables ProcessMethodCall(IMethodReference caller, MethodCallInstruction methodCall, LeakVariables input)
+        {
+            LeakVariables output = null;
+            var possibleCallees = ResolvePossibleCallees(caller, methodCall, input);
+            foreach (var callee in possibleCallees)
             {
-                pta.IsScalarType = IsScalarType;
+                var method = callee.ResolvedMethod;
+                var isUnknownMethod = method == null || method.IsExternal;
+
+                // Si no es conocido el método retornamos null por ahora
+                if (isUnknownMethod)
+                    return output;
+
+                InterLeakAnalysisInfo info;
+                var processCallee = true;
+                var methodInfo = programInfo.GetOrAdd(callee);
+                var ok = methodInfo.TryGet(INFO_ILA_RESULT, out info);
+
+                if (!ok)
+                {
+                    if (isUnknownMethod)
+                        throw new NotImplementedException();
+                    else
+                    {
+                        var cfg = OnReachableMethodFound(method);
+                        var la = new LeakAnalysis(cfg, method);
+                        la.ProcessMethodCall = ProcessMethodCall;
+                        methodInfo.Add(INFO_LA, la);
+
+                        info = new InterLeakAnalysisInfo();
+                        methodInfo.Add(INFO_ILA_RESULT, info);
+                        info.IntraLeakAnalysisInfo = la.Result;
+                    }
+                }
+
+                if (processCallee)
+                {
+                    IList<IVariable> parameters;
+                    if (isUnknownMethod)
+                        throw new NotImplementedException();
+                    else
+                        parameters = method.Body.Parameters;
+
+                    var binding = GetCallerCalleeBinding(methodCall.Arguments, parameters);
+                    var lv = NewMapping(input, binding);
+                    
+                    var oldInput = info.Input;
+                    var inputChanged = true;
+
+                    if (oldInput != null)
+                    {
+                        inputChanged = !oldInput.Equals(lv);
+
+                        if (inputChanged)
+                        {
+                            lv.Union(oldInput);
+                            // Even when the graphs were different,
+                            // it could be the case that one (ptg)
+                            // is a subgraph of the other (oldInput)
+                            // so the the result of the union of both
+                            // graphs is exactly the same oldInput graph.
+                            inputChanged = !oldInput.Equals(lv);
+                        }
+                    }
+
+                    if (inputChanged)
+                    {
+                        info.Input = lv;
+
+                        if (isUnknownMethod)
+                            throw new NotImplementedException();
+                        else
+                        {
+                            var la = methodInfo.Get<LeakAnalysis>(INFO_LA);
+                            var result = la.Analyze(lv);
+
+                            lv = result[ControlFlowGraph.ExitNodeId].Output;
+                        }
+
+                        info.Output = lv;
+                    }
+                    else
+                    {
+                        if (isUnknownMethod)
+                            throw new NotImplementedException();
+                        else
+                        {
+                            // We cannot use info.Output here because it could be a recursive call
+                            // and info.Output is assigned after analyzing the callee.
+                            lv = info.IntraLeakAnalysisInfo[ControlFlowGraph.ExitNodeId].Output;
+
+                            if (info.Output != null)
+                                lv.Union(info.Output);
+
+                            info.Output = lv;
+                        }
+                    }
+
+                    //if (methodCall.HasResult && lv.ReturnVariable != null)
+                    //    binding.Add(lv.ReturnVariable, methodCall.Result);
+                    //lv = RestoreMapping(input, lv, binding);
+
+                    // TODO: Chequear
+                    if (methodCall.HasResult && lv.ReturnVariable != null)
+                    {
+                        lv = input;
+                        lv.Add(methodCall.Result, lv.Variables[lv.ReturnVariable]);
+                    }
+                    else
+                        lv = input;
+
+                    if (lv != null)
+                    {
+                        if (output == null)
+                            output = lv;
+                        else
+                            output.Union(lv);
+                    }
+                }
             }
 
-            methodInfo.Add(INFO_PTA, pta);
+            return output;
+        }
 
-            var info = new InterPointsToInfo();
-            methodInfo.Add(INFO_IPTA_RESULT, info);
-            info.IntraPointsToInfo = pta.Result;
+        private LeakVariables NewMapping(LeakVariables input, IDictionary<IVariable, IVariable> binding)
+        {
+            var lv = new LeakVariables();
 
-            var result = pta.Analyze();
+            foreach (var entry in binding)
+            {
+                var parameter = entry.Key;
+                var argument = entry.Value;
 
-            var ptg = result[ControlFlowGraph.ExitNodeId].Output;
-            info.Output = ptg;
+                if (!input.Variables.ContainsKey(argument))
+                    throw new Exception("Input not found");
 
-            //callStack.Pop();
+                lv.Add(parameter, input.Variables[argument]);
+            }
 
-            // TODO: Remove INFO_PTA from all method infos.
-            return callGraph;
+            return lv;
+        }
+
+        private LeakVariables RestoreMapping(LeakVariables input, LeakVariables output, IDictionary<IVariable, IVariable> binding)
+        {
+            throw new NotImplementedException();
+        }
+
+        // binding: callee parameter -> caller argument
+        private IDictionary<IVariable, IVariable> GetCallerCalleeBinding(IList<IVariable> arguments, IList<IVariable> parameters)
+        {
+            var binding = new Dictionary<IVariable, IVariable>();
+
+#if DEBUG
+            if (arguments.Count != parameters.Count)
+                throw new Exception("Different ammount of parameters and arguments");
+#endif
+
+            for (var i = 0; i < arguments.Count; ++i)
+            {
+                var argument = arguments[i];
+                var parameter = parameters[i];
+
+                binding.Add(parameter, argument);
+            }
+
+            return binding;
+        }
+
+        // binding: callee variable -> caller variable
+        private IDictionary<IVariable, IVariable> GetCalleeCallerBinding(IVariable callerResult, IVariable calleeResult)
+        {
+            var binding = new Dictionary<IVariable, IVariable>();
+
+            if (calleeResult != null && callerResult != null)
+                binding.Add(calleeResult, callerResult);
+
+            return binding;
+        }
+
+        private IEnumerable<IMethodReference> ResolvePossibleCallees(IMethodReference caller, MethodCallInstruction methodCall, LeakVariables lv)
+        {
+            var inv = this.callGraph.GetInvocation(caller, methodCall.Label);
+            return inv.PossibleCallees;
         }
 
         protected virtual ControlFlowGraph DefaultReachableMethodFound(MethodDefinition method)
@@ -165,17 +256,16 @@ namespace Backend.Analyses
             {
                 if (method.Body.Kind == MethodBodyKind.Bytecode)
                 {
-                    throw new NotImplementedException();
+                    var disassembler = new Disassembler(method);
+                    var body = disassembler.Execute();
 
-                    //var disassembler = new Disassembler(method);
-                    //var body = disassembler.Execute();
-
-                    //method.Body = body;
+                    method.Body = body;
                 }
 
                 var cfa = new ControlFlowAnalysis(method.Body);
                 cfg = cfa.GenerateNormalControlFlow();
 
+                // From here: for getting the types
                 var splitter = new WebAnalysis(cfg);
                 splitter.Analyze();
                 splitter.Transform();
@@ -184,6 +274,7 @@ namespace Backend.Analyses
 
                 var typeAnalysis = new TypeInferenceAnalysis(cfg, method.ReturnType);
                 typeAnalysis.Analyze();
+                // Until here: for getting the types
 
                 methodInfo.Add(INFO_CFG, cfg);
             }

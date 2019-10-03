@@ -3,31 +3,169 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Backend.Model;
+using Model.ThreeAddressCode.Instructions;
+using Model.ThreeAddressCode.Values;
+using Model.ThreeAddressCode.Visitor;
+using Model.Types;
 
 namespace Backend.Analyses
 {
-    public class LeakAnalysis : ForwardDataFlowAnalysis<ISet<LeakVariable>>
+    public class LeakAnalysis : ForwardDataFlowAnalysis<LeakVariables>
     {
-        public LeakAnalysis(ControlFlowGraph cfg) : base(cfg) { }
+        private MethodDefinition method;
+        private TransferFunction transferFunction;
+        private LeakVariables initialLeakVariables;
 
-        protected override bool Compare(ISet<LeakVariable> oldValue, ISet<LeakVariable> newValue)
+        public delegate LeakVariables ProcessMethodCallDelegate(IMethodReference caller, MethodCallInstruction methodCall, LeakVariables input);
+        public ProcessMethodCallDelegate ProcessMethodCall
         {
-            throw new NotImplementedException();
+            get { return transferFunction.ProcessMethodCall; }
+            set { transferFunction.ProcessMethodCall = value; }
         }
 
-        protected override ISet<LeakVariable> Flow(CFGNode node, ISet<LeakVariable> input)
+        public LeakAnalysis(ControlFlowGraph cfg, MethodDefinition method) : base(cfg)
         {
-            throw new NotImplementedException();
+            this.method = method;
+            this.transferFunction = new TransferFunction(method);
+        }
+        
+        protected override bool Compare(LeakVariables lv1, LeakVariables lv2)
+        {
+            return lv1.Equals(lv2);
         }
 
-        protected override ISet<LeakVariable> InitialValue(CFGNode node)
+        public override DataFlowAnalysisResult<LeakVariables>[] Analyze()
         {
-            throw new NotImplementedException();
+            this.initialLeakVariables = new LeakVariables();
+            return base.Analyze();
         }
 
-        protected override ISet<LeakVariable> Join(ISet<LeakVariable> left, ISet<LeakVariable> right)
+        public DataFlowAnalysisResult<LeakVariables>[] Analyze(LeakVariables lv)
         {
-            throw new NotImplementedException();
+            this.initialLeakVariables = new LeakVariables(lv);
+            return base.Analyze();
+        }
+
+        protected override LeakVariables Flow(CFGNode node, LeakVariables input)
+        {
+            input = new LeakVariables(input);
+            var output = transferFunction.Evaluate(node, input);
+            return output;
+        }
+
+        protected override LeakVariables InitialValue(CFGNode node)
+        {
+            return initialLeakVariables;
+        }
+
+        protected override LeakVariables Join(LeakVariables left, LeakVariables right)
+        {
+            var joinSet = new LeakVariables(left);
+            joinSet.Union(right);
+            return joinSet;
+        }
+
+        private class TransferFunction : InstructionVisitor
+        {
+            private IMethodReference method;
+            LeakVariables variables;
+            public ProcessMethodCallDelegate ProcessMethodCall;
+
+            public TransferFunction(IMethodReference method)
+            {
+                this.method = method;
+            }
+
+            public LeakVariables Evaluate(CFGNode node, LeakVariables input)
+            {
+                this.variables = input;
+                Visit(node);
+                var result = this.variables;
+                this.variables = null;
+                return result;
+            }
+
+            //public override void Visit(LoadInstruction instruction)
+            //{
+            //    base.Visit(instruction);
+            //}
+
+            //public override void Visit(BinaryInstruction instruction)
+            //{
+            //    base.Visit(instruction);
+            //}
+
+            //public override void Visit(MethodCallInstruction instruction)
+            //{
+            //    base.Visit(instruction);
+            //}
+
+            public override void Visit(DefinitionInstruction instruction)
+            {
+                base.Visit(instruction);
+
+                LeakVariableInfo info = new LeakVariableInfo();
+
+                if (instruction is LoadInstruction)
+                {
+                    var isConstant = ((LoadInstruction)instruction).Operand is Constant;
+                    var isVariable = ((LoadInstruction)instruction).Operand is IVariable;
+                    if (isConstant)
+                        info.Sensibility = LeakSymbol.Low;
+                    else if (isVariable)
+                        variables.Variables.TryGetValue((IVariable)((LoadInstruction)instruction).Operand, out info);
+                    else
+                        throw new NotImplementedException();
+                }
+                else if (instruction is BinaryInstruction)
+                {
+                    foreach (var v in instruction.UsedVariables)
+                    {
+                        if (variables.Variables.ContainsKey(v))
+                        {
+                            var cv = variables.Variables[v];
+                            info.Sensibility = LeakVariables.GetMinMax(info.Sensibility, cv.Sensibility);
+                        }
+                        else
+                            throw new NotImplementedException();
+                    }
+                }
+                else if (instruction is MethodCallInstruction)
+                {
+                    // Particular cases
+                    if (((MethodCallInstruction)instruction).Method.Name == "Sensible")
+                    {
+                        variables.Variables[((MethodCallInstruction)instruction).Arguments[0]].Sensibility = LeakSymbol.High;
+                    }
+                    else
+                    {
+                        LeakVariables output = null;
+                        if (ProcessMethodCall != null)
+                            output = ProcessMethodCall(method, (MethodCallInstruction)instruction, variables);
+
+                        if (output == null)
+                            foreach (var arg in ((MethodCallInstruction)instruction).Arguments)
+                                variables.Variables[arg].Laked = true;
+                        else
+                        {
+                            variables = output;
+                            // TODO: ver si fue lakeada en la otra función
+                            info = variables.Variables[output.ReturnVariable];
+                        }
+                    }
+                }
+                else
+                    ;
+
+                foreach (var mv in instruction.ModifiedVariables)
+                    variables.Variables[mv] = info;
+            }
+
+            public override void Visit(ReturnInstruction instruction)
+            {
+                if (instruction.HasOperand)
+                    variables.ReturnVariable = instruction.Operand;
+            }
         }
     }
 }

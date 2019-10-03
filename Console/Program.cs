@@ -101,12 +101,19 @@ namespace Console
             // Zero Analysis
             var zeroAnalysis = new ZeroAnalysis(cfg);
             var zeroAnalysisInfo = zeroAnalysis.Analyze();
-            System.Console.WriteLine("Zero Analysis");
-            foreach (var l in zeroAnalysisInfo.Last().Output)
-            {
-                if (l.variable.Name.Contains("local"))
-                    System.Console.WriteLine(l.variable.Name + " " + l.GetStringValue());
-            }
+            //System.Console.WriteLine("Zero Analysis");
+            //foreach (var l in zeroAnalysisInfo.Last().Output)
+            //{
+            //    if (l.variable.Name.Contains("local"))
+            //        System.Console.WriteLine(l.variable.Name + " " + l.GetStringValue());
+            //}
+
+            // Leak Analysis
+            var programInfo = new ProgramAnalysisInfo();
+            var pta = new InterPointsToAnalysis(programInfo);
+            var cg = pta.Analyze(method);
+            var interLeakAnalysis = new InterLeakAnalysis(programInfo, cg);
+            interLeakAnalysis.Analyze(method);
 
 			// SSA
 			var ssa = new StaticSingleAssignment(methodBody, cfg);
@@ -140,7 +147,7 @@ namespace Console
                 ContainingNamespace = "Test"
             };
             var typeDefinition = host.ResolveReference(type);
-            var method = new MethodReference("ExampleZeroAnalysis", PlatformTypes.Void)
+            var method = new MethodReference("ExampleLeakAnalysis_1" /*"ExampleZeroAnalysis"*/, PlatformTypes.Void)
             {
                 ContainingType = type,
             };

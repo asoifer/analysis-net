@@ -44,6 +44,9 @@
     <Compile Include="Analyses\ControlFlowAnalysis.cs" />
     <Compile Include="Analyses\BackwardCopyPropagationAnalysis.cs" />
     <Compile Include="Analyses\ControlDependenceAnalysis.cs" />
+    <Compile Include="Analyses\InterLeakAnalysis.cs" />
+    <Compile Include="Analyses\LeakAnalysis.cs" />
+    <Compile Include="Analyses\LeakVariables.cs" />
     <Compile Include="Analyses\SliceAnalysis.cs" />
     <Compile Include="Analyses\PostDominanceFrontierAnalysis.cs" />
     <Compile Include="Analyses\PostDominanceAnalysis.cs" />
